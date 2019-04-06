@@ -2,9 +2,13 @@
 
 from __future__ import print_function
 
+import datetime
 import getpass
-import sys
+import json
 import re
+import sys
+import termcolor
+import time
 from optparse import OptionParser
 
 from minecraft import authentication
@@ -13,6 +17,24 @@ from minecraft.networking.connection import Connection
 from minecraft.networking.packets import Packet, clientbound, serverbound
 from minecraft.compat import input
 
+COLOR_REPLACE = {
+    'black': 'grey',
+    'dark_blue': 'blue',
+    'dark_green': 'green',
+    'dark_aqua': 'cyan',
+    'dark_red': 'red',
+    'dark_purple': 'magenta',
+    'gold': 'yellow',
+    'gray': 'grey',
+    'dark_gray': 'grey',
+    'blue': 'blue',
+    'green': 'green',
+    'aqua': 'cyan',
+    'red': 'red',
+    'light_purple': 'magenta',
+    'yellow': 'yellow',
+    'white': 'white',
+}
 
 def get_options():
     parser = OptionParser()
@@ -100,8 +122,47 @@ def main():
         handle_join_game, clientbound.play.JoinGamePacket)
 
     def print_chat(chat_packet):
-        print("Message (%s): %s" % (
-            chat_packet.field_string('position'), chat_packet.json_data))
+
+        #print("Message (%s): %s" % (
+        #    chat_packet.field_string('position'), chat_packet.json_data))
+
+        chat_json = json.loads(chat_packet.json_data)
+
+        if 'extra' in chat_json:
+
+            line = ""
+
+            for part in chat_json['extra']:
+
+                if type(part) == str:
+                    line += part
+
+                elif 'extra' in part:
+                    for subpart in part['extra']:
+                        if type(subpart) == str:
+                            line += subpart
+                        elif 'text' in subpart:
+                            if 'color' in subpart:
+                                color = subpart['color']
+                                if color in COLOR_REPLACE:
+                                    color = COLOR_REPLACE[color]
+                                line += termcolor.colored(subpart['text'], color)
+                            else:
+                                line += subpart['text']
+
+                elif 'text' in part:
+                    if 'color' in part:
+                        color = part['color']
+                        if color in COLOR_REPLACE:
+                            color = COLOR_REPLACE[color]
+                        line += termcolor.colored(part['text'], color)
+                    else:
+                        line += part['text']
+
+            ts = termcolor.colored(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), "grey")
+
+            print("[{}] {}".format(ts, line))
+
 
     connection.register_packet_listener(
         print_chat, clientbound.play.ChatMessagePacket)
