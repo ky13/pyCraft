@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from termcolor import colored
+from threading import Timer
 import time
 from optparse import OptionParser
 
@@ -35,6 +36,33 @@ COLOR_REPLACE = {
     'yellow': 'yellow',
     'white': 'white',
 }
+
+
+class RepeatedTimer(object):
+    def __init__(self, interval, function, *args, **kwargs):
+        self._timer     = None
+        self.function   = function
+        self.interval   = interval
+        self.args       = args
+        self.kwargs     = kwargs
+        self.is_running = False
+        self.start()
+
+    def _run(self):
+        self.is_running = False
+        self.start()
+        self.function(*self.args, **self.kwargs)
+
+    def start(self):
+        if not self.is_running:
+            self._timer = Timer(self.interval, self._run)
+            self._timer.start()
+            self.is_running = True
+
+    def stop(self):
+        self._timer.cancel()
+        self.is_running = False
+
 
 class Message():
 
@@ -99,6 +127,9 @@ def get_options():
                       help="server host or host:port "
                            "(enclose IPv6 addresses in square brackets)")
 
+    parser.add_option("-r", "--realm", dest="realm", default=None,
+                      help="realm name")
+
     parser.add_option("-o", "--offline", dest="offline", action="store_true",
                       help="connect to a server in offline mode "
                            "(no password required)")
@@ -127,6 +158,9 @@ def get_options():
         raise ValueError("Invalid server address: '%s'." % options.server)
     options.address = match.group("host") or match.group("addr")
     options.port = int(match.group("port") or 25565)
+
+    if not options.realm:
+        options.username = input("Enter your realm: ")
 
     return options
 
@@ -171,26 +205,36 @@ def main():
     connection.register_packet_listener(
         handle_join_game, clientbound.play.JoinGamePacket)
 
-    def print_chat(chat_packet):
+    def print_chat(chat_packet, output="default"):
 
-        #print("Message (%s): %s" % (
-        #    chat_packet.field_string('position'), chat_packet.json_data))
+        if output == "raw":
+            print("Message (%s): %s" % (
+                chat_packet.field_string('position'), chat_packet.json_data))
 
         chat_json = json.loads(chat_packet.json_data)
-        #print(json.dumps(chat_json, sort_keys=True, indent=4, separators=(',', ': ')))
 
-        message = Message(chat_json)
+        if output == "pretty":
+            print(json.dumps(chat_json, sort_keys=True, indent=4, separators=(',', ': ')))
 
-        ts = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
-
-        print("[{}] {}".format(colored(ts, "grey"), message.formatted_str))
-
-
+        if output == "default":
+            message = Message(chat_json)
+            ts = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+            print("[{}] {}".format(colored(ts, "grey"), message.formatted_str))
 
     connection.register_packet_listener(
         print_chat, clientbound.play.ChatMessagePacket)
 
     connection.connect()
+
+    def requeue(realm):
+        message = "/joinqueue " + realm
+        packet = serverbound.play.ChatPacket()
+        packet.message = message
+        print(message)
+        connection.write_packet(packet)
+
+    # Re-join realm every 60 seconds
+    rt = RepeatedTimer(60, requeue, options.realm)
 
     while True:
         try:
@@ -205,6 +249,7 @@ def main():
                 packet.message = text
                 connection.write_packet(packet)
         except KeyboardInterrupt:
+            rt.stop()
             print("Bye!")
             sys.exit()
 
