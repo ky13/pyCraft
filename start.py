@@ -7,7 +7,7 @@ import getpass
 import json
 import re
 import sys
-import termcolor
+from termcolor import colored
 import time
 from optparse import OptionParser
 
@@ -35,6 +35,56 @@ COLOR_REPLACE = {
     'yellow': 'yellow',
     'white': 'white',
 }
+
+class Message():
+
+    formatted_str = ""
+    plain_str = ""
+
+    def __init__(self, data):
+        self.formatted_str = self.get_formatted_text(data)
+        self.plain_str = self.get_text(data)
+
+        if type(data) == dict and 'extra' in data:
+            for part in data['extra']:
+
+                self.formatted_str += self.get_formatted_text(part)
+                self.plain_str += self.get_text(part)
+
+                if type(part) == dict and 'extra' in part:
+                    for subpart in part['extra']:
+                        self.formatted_str += self.get_formatted_text(subpart)
+                        self.plain_str += self.get_text(subpart)
+
+
+    def get_color(self, color):
+        if color in COLOR_REPLACE:
+            return COLOR_REPLACE[color]
+        else:
+            return color
+
+    def get_text(self, part):
+        if type(part) == str:
+            return part
+        elif 'text' in part:
+            return part['text']
+        else:
+            return ""
+
+    def get_formatted_text(self, part):
+        if type(part) == str:
+            return part
+        elif 'text' in part:
+            if 'color' in part:
+                return colored(part['text'], self.get_color(part['color']))
+            else:
+                return part['text']
+        else:
+            return ""
+
+    def __contains__(self, pattern):
+        return re.search(pattern, self.plain_str)
+
 
 def get_options():
     parser = OptionParser()
@@ -127,41 +177,14 @@ def main():
         #    chat_packet.field_string('position'), chat_packet.json_data))
 
         chat_json = json.loads(chat_packet.json_data)
+        #print(json.dumps(chat_json, sort_keys=True, indent=4, separators=(',', ': ')))
 
-        if 'extra' in chat_json:
+        message = Message(chat_json)
 
-            line = ""
+        ts = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
 
-            for part in chat_json['extra']:
+        print("[{}] {}".format(colored(ts, "grey"), message.formatted_str))
 
-                if type(part) == str:
-                    line += part
-
-                elif 'extra' in part:
-                    for subpart in part['extra']:
-                        if type(subpart) == str:
-                            line += subpart
-                        elif 'text' in subpart:
-                            if 'color' in subpart:
-                                color = subpart['color']
-                                if color in COLOR_REPLACE:
-                                    color = COLOR_REPLACE[color]
-                                line += termcolor.colored(subpart['text'], color)
-                            else:
-                                line += subpart['text']
-
-                elif 'text' in part:
-                    if 'color' in part:
-                        color = part['color']
-                        if color in COLOR_REPLACE:
-                            color = COLOR_REPLACE[color]
-                        line += termcolor.colored(part['text'], color)
-                    else:
-                        line += part['text']
-
-            ts = termcolor.colored(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S'), "grey")
-
-            print("[{}] {}".format(ts, line))
 
 
     connection.register_packet_listener(
@@ -188,3 +211,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
